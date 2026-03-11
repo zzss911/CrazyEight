@@ -32,6 +32,12 @@ export default function App() {
   const [message, setMessage] = useState<string>('欢迎来到哈基疯狂 8 点！');
   const [isAiThinking, setIsAiThinking] = useState(false);
   const aiTurnTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const gameStateRef = useRef<GameState>(gameState);
+
+  // Keep gameStateRef up to date
+  useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
 
   // Initialize Game
   const initGame = () => {
@@ -147,117 +153,119 @@ export default function App() {
   };
 
   // AI Logic
-  const executeAiTurn = useCallback(() => {
-    if (gameState.status !== 'playing' || gameState.currentTurn !== 'ai') return;
-
-    setIsAiThinking(true);
-    
-    aiTurnTimeoutRef.current = setTimeout(() => {
-      const topCard = gameState.discardPile[gameState.discardPile.length - 1];
-      const playableCards = gameState.aiHand.filter(c => canPlayCard(c, topCard, gameState.wildSuit));
-
-      if (playableCards.length > 0) {
-        // AI strategy: play non-8 cards first, then 8s
-        const nonEightCards = playableCards.filter(c => c.rank !== Rank.EIGHT);
-        const cardToPlay = nonEightCards.length > 0 
-          ? nonEightCards[Math.floor(Math.random() * nonEightCards.length)]
-          : playableCards[0];
-
-        const newAiHand = gameState.aiHand.filter(c => c.id !== cardToPlay.id);
-        const newDiscardPile = [...gameState.discardPile, cardToPlay];
-
-        if (newAiHand.length === 0) {
-          handleWin('ai');
+  useEffect(() => {
+    if (gameState.currentTurn === 'ai' && gameState.status === 'playing' && !isAiThinking) {
+      setIsAiThinking(true);
+      
+      aiTurnTimeoutRef.current = setTimeout(() => {
+        const state = gameStateRef.current;
+        if (state.currentTurn !== 'ai' || state.status !== 'playing') {
           setIsAiThinking(false);
           return;
         }
 
-        if (cardToPlay.rank === Rank.EIGHT) {
-          // AI picks the suit it has the most of
-          const suitCounts: Record<Suit, number> = {
-            [Suit.HEARTS]: 0,
-            [Suit.DIAMONDS]: 0,
-            [Suit.CLUBS]: 0,
-            [Suit.SPADES]: 0,
-          };
-          newAiHand.forEach(c => suitCounts[c.suit]++);
-          const bestSuit = (Object.keys(suitCounts) as Suit[]).reduce((a, b) => suitCounts[a] > suitCounts[b] ? a : b);
+        const topCard = state.discardPile[state.discardPile.length - 1];
+        const playableCards = state.aiHand.filter(c => canPlayCard(c, topCard, state.wildSuit));
 
-          setGameState(prev => ({
-            ...prev,
-            aiHand: newAiHand,
-            discardPile: newDiscardPile,
-            wildSuit: bestSuit,
-            currentTurn: 'player',
-          }));
-          setMessage(`AI 打出了 8，并将花色改为 ${getSuitSymbol(bestSuit)}。`);
-        } else {
-          setGameState(prev => ({
-            ...prev,
-            aiHand: newAiHand,
-            discardPile: newDiscardPile,
-            currentTurn: 'player',
-            wildSuit: null,
-          }));
-          setMessage(`AI 打出了 ${cardToPlay.rank}${getSuitSymbol(cardToPlay.suit)}。轮到你了。`);
-        }
-      } else {
-        // AI must draw
-        if (gameState.deck.length === 0 && gameState.discardPile.length > 1) {
-          // Reshuffle for AI
-          const topCard = gameState.discardPile[gameState.discardPile.length - 1];
-          const restOfDiscard = gameState.discardPile.slice(0, -1);
-          const newDeck = shuffle(restOfDiscard);
-          const drawnCard = newDeck.pop()!;
-          
-          setGameState(prev => ({
-            ...prev,
-            deck: newDeck,
-            discardPile: [topCard],
-            aiHand: [...prev.aiHand, drawnCard],
-            currentTurn: 'player',
-          }));
-          setMessage('摸牌堆已重置，AI 摸了一张牌。');
-        } else if (gameState.deck.length > 0) {
-          const newDeck = [...gameState.deck];
-          const drawnCard = newDeck.pop()!;
-          
-          // AI simple rule: if drawn card is playable (and not an 8 for simplicity), play it
-          if (canPlayCard(drawnCard, topCard, gameState.wildSuit) && drawnCard.rank !== Rank.EIGHT) {
+        if (playableCards.length > 0) {
+          // AI strategy: play non-8 cards first, then 8s
+          const nonEightCards = playableCards.filter(c => c.rank !== Rank.EIGHT);
+          const cardToPlay = nonEightCards.length > 0 
+            ? nonEightCards[Math.floor(Math.random() * nonEightCards.length)]
+            : playableCards[0];
+
+          const newAiHand = state.aiHand.filter(c => c.id !== cardToPlay.id);
+          const newDiscardPile = [...state.discardPile, cardToPlay];
+
+          if (newAiHand.length === 0) {
+            handleWin('ai');
+            setIsAiThinking(false);
+            return;
+          }
+
+          if (cardToPlay.rank === Rank.EIGHT) {
+            // AI picks the suit it has the most of
+            const suitCounts: Record<Suit, number> = {
+              [Suit.HEARTS]: 0,
+              [Suit.DIAMONDS]: 0,
+              [Suit.CLUBS]: 0,
+              [Suit.SPADES]: 0,
+            };
+            newAiHand.forEach(c => suitCounts[c.suit]++);
+            const bestSuit = (Object.keys(suitCounts) as Suit[]).reduce((a, b) => suitCounts[a] > suitCounts[b] ? a : b);
+
             setGameState(prev => ({
               ...prev,
-              deck: newDeck,
-              discardPile: [...prev.discardPile, drawnCard],
+              aiHand: newAiHand,
+              discardPile: newDiscardPile,
+              wildSuit: bestSuit,
               currentTurn: 'player',
-              wildSuit: null,
             }));
-            setMessage(`AI 摸了一张牌并打出了 ${drawnCard.rank}${getSuitSymbol(drawnCard.suit)}。`);
+            setMessage(`AI 打出了 8，并将花色改为 ${getSuitSymbol(bestSuit)}。`);
           } else {
             setGameState(prev => ({
               ...prev,
+              aiHand: newAiHand,
+              discardPile: newDiscardPile,
+              currentTurn: 'player',
+              wildSuit: null,
+            }));
+            setMessage(`AI 打出了 ${cardToPlay.rank}${getSuitSymbol(cardToPlay.suit)}。轮到你了。`);
+          }
+        } else {
+          // AI must draw
+          if (state.deck.length === 0 && state.discardPile.length > 1) {
+            // Reshuffle for AI
+            const topCard = state.discardPile[state.discardPile.length - 1];
+            const restOfDiscard = state.discardPile.slice(0, -1);
+            const newDeck = shuffle(restOfDiscard);
+            const drawnCard = newDeck.pop()!;
+            
+            setGameState(prev => ({
+              ...prev,
               deck: newDeck,
+              discardPile: [topCard],
               aiHand: [...prev.aiHand, drawnCard],
               currentTurn: 'player',
             }));
-            setMessage('AI 没牌可出，摸了一张牌。');
+            setMessage('摸牌堆已重置，AI 摸了一张牌。');
+          } else if (state.deck.length > 0) {
+            const newDeck = [...state.deck];
+            const drawnCard = newDeck.pop()!;
+            
+            // AI simple rule: if drawn card is playable (and not an 8 for simplicity), play it
+            if (canPlayCard(drawnCard, topCard, state.wildSuit) && drawnCard.rank !== Rank.EIGHT) {
+              setGameState(prev => ({
+                ...prev,
+                deck: newDeck,
+                discardPile: [...prev.discardPile, drawnCard],
+                currentTurn: 'player',
+                wildSuit: null,
+              }));
+              setMessage(`AI 摸了一张牌并打出了 ${drawnCard.rank}${getSuitSymbol(drawnCard.suit)}。`);
+            } else {
+              setGameState(prev => ({
+                ...prev,
+                deck: newDeck,
+                aiHand: [...prev.aiHand, drawnCard],
+                currentTurn: 'player',
+              }));
+              setMessage('AI 没牌可出，摸了一张牌。');
+            }
+          } else {
+            setMessage('摸牌堆已空，AI 跳过回合。');
+            setGameState(prev => ({ ...prev, currentTurn: 'player' }));
           }
-        } else {
-          setMessage('摸牌堆已空，AI 跳过回合。');
-          setGameState(prev => ({ ...prev, currentTurn: 'player' }));
         }
-      }
-      setIsAiThinking(false);
-    }, 1500);
-  }, [gameState]);
-
-  useEffect(() => {
-    if (gameState.currentTurn === 'ai' && gameState.status === 'playing') {
-      executeAiTurn();
+        setIsAiThinking(false);
+      }, 1500);
     }
+
     return () => {
-      if (aiTurnTimeoutRef.current) clearTimeout(aiTurnTimeoutRef.current);
+      // We don't clear the timeout here anymore to prevent the "stuck" bug
+      // The timeout callback checks if it's still valid before executing
     };
-  }, [gameState.currentTurn, gameState.status, executeAiTurn]);
+  }, [gameState.currentTurn, gameState.status]);
 
   const handleWin = (winner: 'player' | 'ai') => {
     setGameState(prev => ({ ...prev, status: 'game_over', winner }));
